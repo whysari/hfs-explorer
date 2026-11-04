@@ -2,7 +2,6 @@ import { useState, useEffect, useRef } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { open, save } from "@tauri-apps/plugin-dialog";
 import { revealItemInDir } from "@tauri-apps/plugin-opener";
-import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
 import {
   HardDrive,
   Folder,
@@ -28,8 +27,6 @@ import {
   X,
   FileSearch,
   GripVertical,
-  UploadCloud,
-  FileUp,
 } from "lucide-react";
 import "./App.css";
 
@@ -112,9 +109,7 @@ export default function App() {
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [lastExtractedPath, setLastExtractedPath] = useState<string | null>(null);
 
-  // Drag and Drop States
-  const [isDraggingIn, setIsDraggingIn] = useState(false);
-  const [droppedFiles, setDroppedFiles] = useState<string[] | null>(null);
+  // Drag Out State
   const [isDraggingOut, setIsDraggingOut] = useState(false);
 
   // Context Menu & Modals
@@ -123,39 +118,6 @@ export default function App() {
   const [showSafetyModal, setShowSafetyModal] = useState(false);
 
   const contextMenuRef = useRef<HTMLDivElement>(null);
-
-  // Native Tauri Window Drag-Drop Listener (Dragging Files IN from Windows)
-  useEffect(() => {
-    let unlisten: (() => void) | undefined;
-    try {
-      const appWindow = getCurrentWebviewWindow();
-      appWindow
-        .onDragDropEvent((event) => {
-          if (event.payload.type === "enter" || event.payload.type === "over") {
-            setIsDraggingIn(true);
-          } else if (event.payload.type === "leave") {
-            setIsDraggingIn(false);
-          } else if (event.payload.type === "drop") {
-            setIsDraggingIn(false);
-            if (event.payload.paths && event.payload.paths.length > 0) {
-              setDroppedFiles(event.payload.paths);
-            }
-          }
-        })
-        .then((fn) => {
-          unlisten = fn;
-        })
-        .catch((err) => {
-          console.error("Failed to register drag-drop listener:", err);
-        });
-    } catch (e) {
-      console.error(e);
-    }
-
-    return () => {
-      if (unlisten) unlisten();
-    };
-  }, []);
 
   // Close context menu on outside click or escape
   useEffect(() => {
@@ -169,7 +131,6 @@ export default function App() {
         setContextMenu(null);
         setInspectedEntry(null);
         setShowSafetyModal(false);
-        setDroppedFiles(null);
       }
     }
     window.addEventListener("mousedown", handleClickOutside);
@@ -311,34 +272,24 @@ export default function App() {
     setContextMenu({ x, y, entry });
   }
 
-  // Drag-OUT: Dragging a file/folder OUT of the app to Windows Desktop / Explorer
+  // Native Drag-OUT: Dragging a file/folder OUT of the app to Windows Desktop / Explorer
   async function handleDragOutStart(e: React.DragEvent, entry: HfsEntry) {
     e.preventDefault();
     setIsDraggingOut(true);
-    setStatusMessage(`Preparing "${entry.name}" for drag-and-drop...`);
+    setStatusMessage(`Dragging "${entry.name}" out to Windows...`);
 
     try {
-      // 1. Prepare/extract item into Windows temp drag cache
-      const cachedFilePath = await invoke<string>("prepare_drag_entry", {
-        entryId: entry.id,
-      });
-
-      // 2. Trigger native Windows OLE drag via tauri-plugin-drag
-      await invoke("plugin:drag|start_drag", {
-        item: [cachedFilePath],
-      });
-
-      setStatusMessage(`Dragged out "${entry.name}" to Windows`);
+      await invoke("start_drag_out", { entryId: entry.id });
+      setStatusMessage(`Extracted "${entry.name}" via drag`);
     } catch (err: any) {
-      console.warn("Native drag-out fallback:", err);
-      // Fallback: prompt extraction dialog if OLE drag is cancelled or unsupported
-      await handleExtractEntry(entry);
+      console.warn("Drag operation finished/cancelled:", err);
+      // DO NOT pop up save dialog! Keep drag clean.
     } finally {
       setIsDraggingOut(false);
     }
   }
 
-  // Unified Extract Handler for both files and folders
+  // Explicit Extract Handler (used when clicking Extract button or Right-Click -> Extract)
   async function handleExtractEntry(entry: HfsEntry) {
     setContextMenu(null);
     setErrorMessage(null);
@@ -441,24 +392,7 @@ export default function App() {
   const currentFolder = currentPath[currentPath.length - 1];
 
   return (
-    <div className="flex h-screen w-screen bg-zinc-950 text-zinc-100 antialiased overflow-hidden select-none font-sans relative">
-      {/* Drag-IN Full-Window Overlay */}
-      {isDraggingIn && (
-        <div className="absolute inset-0 z-50 bg-blue-950/80 backdrop-blur-md border-4 border-dashed border-blue-400 flex flex-col items-center justify-center p-8 text-center space-y-4 animate-in fade-in duration-150">
-          <div className="p-5 rounded-full bg-blue-500/20 border border-blue-400/50 text-blue-300 animate-bounce">
-            <UploadCloud className="w-16 h-16" />
-          </div>
-          <div className="space-y-1.5 max-w-md">
-            <h2 className="text-xl font-bold text-white tracking-wide">
-              Drop Files to Import into {currentFolder.name}
-            </h2>
-            <p className="text-xs text-blue-200 leading-relaxed">
-              Release mouse button to inspect and import files into this Apple HFS+ directory.
-            </p>
-          </div>
-        </div>
-      )}
-
+    <div className="flex h-screen w-screen bg-zinc-950 text-zinc-100 antialiased overflow-hidden select-none font-sans">
       {/* Sidebar */}
       <aside className="w-72 bg-zinc-900/95 border-r border-zinc-800 flex flex-col justify-between shrink-0">
         <div className="p-4 space-y-5 overflow-y-auto">
@@ -605,7 +539,7 @@ export default function App() {
           <span>Rust + Tauri Engine</span>
           <span className="text-emerald-400 flex items-center gap-1">
             <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
-            Drag & Drop Ready
+            Ready
           </span>
         </div>
       </aside>
@@ -644,7 +578,7 @@ export default function App() {
             </div>
           </div>
 
-          {/* Right Toolbar: Drag Tip & Search */}
+          {/* Right Toolbar: Extract Folder & Search */}
           <div className="flex items-center gap-2.5">
             {volume && (
               <button
@@ -726,7 +660,7 @@ export default function App() {
                       onClick={() => setSelectedEntry(entry)}
                       onDoubleClick={() => handleNavigateInto(entry)}
                       onContextMenu={(e) => handleContextMenu(e, entry)}
-                      title="Drag with mouse to copy out onto Windows Desktop or Explorer"
+                      title="Drag to Windows Desktop/Explorer to export, or click Extract"
                       className={`cursor-pointer transition-colors group ${
                         isSelected
                           ? "bg-blue-600/20 text-white"
@@ -782,7 +716,7 @@ export default function App() {
             {isDraggingOut && (
               <span className="flex items-center gap-1.5 text-blue-400 font-medium shrink-0 animate-pulse">
                 <GripVertical className="w-3.5 h-3.5" />
-                <span>Dragging item to Windows...</span>
+                <span>Dragging file to Windows...</span>
               </span>
             )}
             {statusMessage && (
@@ -813,7 +747,7 @@ export default function App() {
                   <span className="text-zinc-200 font-medium">{currentFolder.name}</span>
                 </span>
                 <span className="text-[11px] text-zinc-400 bg-zinc-800/70 px-2 py-0.5 rounded-full">
-                  Tip: Drag rows with mouse to export
+                  Drag items out to Windows desktop
                 </span>
               </span>
             )}
@@ -951,70 +885,6 @@ export default function App() {
                 className="px-3 py-1.5 bg-blue-600 hover:bg-blue-500 text-white rounded-lg text-xs font-medium transition-colors cursor-pointer"
               >
                 Extract to Windows...
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Drag-IN File Drop Modal (Writing & Protection Notice) */}
-      {droppedFiles && (
-        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="bg-zinc-900 border border-zinc-700 rounded-2xl w-full max-w-md overflow-hidden shadow-2xl space-y-4">
-            <div className="px-5 py-4 border-b border-zinc-800 flex items-center justify-between">
-              <div className="flex items-center gap-2 text-blue-400">
-                <FileUp className="w-5 h-5" />
-                <h3 className="font-semibold text-sm text-zinc-100">
-                  Import Files into Apple HFS+
-                </h3>
-              </div>
-              <button
-                onClick={() => setDroppedFiles(null)}
-                className="text-zinc-400 hover:text-zinc-200 p-1 rounded-lg cursor-pointer"
-              >
-                <X className="w-4 h-4" />
-              </button>
-            </div>
-
-            <div className="px-5 space-y-3 text-xs text-zinc-300">
-              <p className="text-zinc-400">
-                You dragged <strong className="text-zinc-200">{droppedFiles.length} item(s)</strong> from Windows into <span className="text-blue-400 font-medium">{currentFolder.name}</span>:
-              </p>
-
-              <div className="max-h-32 overflow-y-auto bg-zinc-950/80 border border-zinc-800 rounded-lg p-2.5 space-y-1 font-mono text-[11px] text-zinc-400">
-                {droppedFiles.map((path, idx) => (
-                  <div key={idx} className="truncate">
-                    {path}
-                  </div>
-                ))}
-              </div>
-
-              <div className="p-3 bg-amber-950/40 border border-amber-500/30 rounded-xl space-y-1 text-amber-200">
-                <div className="font-semibold flex items-center gap-1.5">
-                  <ShieldCheck className="w-4 h-4 text-amber-400" />
-                  <span>Write Protection Active (Read-Only Mode)</span>
-                </div>
-                <p className="text-[11px] text-amber-300/80 leading-relaxed">
-                  Apple HFS+ volumes are mounted read-only to safeguard the macOS Journal (<code className="text-amber-200 font-mono">kHFSVolumeJournaledBit</code>). Writing raw blocks without an active journal commit buffer risks macOS flagging the drive as corrupt upon reconnecting to a Mac.
-                </p>
-              </div>
-            </div>
-
-            <div className="p-4 bg-zinc-950/60 border-t border-zinc-800 flex justify-between gap-2">
-              <button
-                onClick={() => {
-                  setDroppedFiles(null);
-                  setShowSafetyModal(true);
-                }}
-                className="px-3 py-1.5 bg-zinc-800 hover:bg-zinc-700 text-zinc-300 rounded-lg text-xs font-medium transition-colors cursor-pointer"
-              >
-                Learn More
-              </button>
-              <button
-                onClick={() => setDroppedFiles(null)}
-                className="px-4 py-1.5 bg-blue-600 hover:bg-blue-500 text-white rounded-lg text-xs font-medium transition-colors cursor-pointer"
-              >
-                Understood
               </button>
             </div>
           </div>

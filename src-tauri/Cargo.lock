@@ -1474,6 +1474,7 @@ version = "0.1.0"
 dependencies = [
  "byteorder",
  "chrono",
+ "drag",
  "serde",
  "serde_json",
  "tauri",

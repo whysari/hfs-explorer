@@ -90,6 +90,39 @@ fn prepare_drag_entry(
 }
 
 #[tauri::command]
+async fn start_drag_out(
+    app: tauri::AppHandle,
+    window: tauri::Window,
+    state: State<'_, AppState>,
+    entry_id: u32,
+) -> Result<(), String> {
+    let mut lock = state.reader.lock().map_err(|e| e.to_string())?;
+    let reader = lock.as_mut().ok_or("No volume is currently open")?;
+
+    let temp_cache = std::env::temp_dir().join("hfs_explorer_drag_cache");
+    let _ = std::fs::create_dir_all(&temp_cache);
+
+    let stats = reader
+        .extract_entry(entry_id, &temp_cache)
+        .map_err(|e| format!("Failed to prepare file for drag: {}", e))?;
+
+    let file_path = std::path::PathBuf::from(&stats.destination_path);
+
+    app.run_on_main_thread(move || {
+        let _ = drag::start_drag(
+            &window,
+            drag::DragItem::Files(vec![file_path]),
+            drag::Image::Raw(vec![]),
+            |_result, _pos| {},
+            drag::Options::default(),
+        );
+    })
+    .map_err(|e| e.to_string())?;
+
+    Ok(())
+}
+
+#[tauri::command]
 fn create_test_image(dest_path: String) -> Result<String, String> {
     hfs::generator::generate_test_image(&dest_path)
         .map_err(|e| format!("Failed to generate test image: {}", e))?;
@@ -112,6 +145,7 @@ pub fn run() {
             extract_file,
             extract_entry,
             prepare_drag_entry,
+            start_drag_out,
             create_test_image
         ])
         .run(tauri::generate_context!())
