@@ -196,11 +196,26 @@ pub fn generate_test_image<P: AsRef<Path>>(dest_path: P) -> io::Result<()> {
     BigEndian::write_u32(&mut vh[52..56], 50);
     BigEndian::write_u32(&mut vh[64..68], 25);
 
-    BigEndian::write_u64(&mut vh[192..200], (catalog_block_count * block_size) as u64);
-    BigEndian::write_u32(&mut vh[200..204], catalog_block_count * block_size);
-    BigEndian::write_u32(&mut vh[204..208], catalog_block_count);
-    BigEndian::write_u32(&mut vh[208..212], catalog_start_block);
-    BigEndian::write_u32(&mut vh[212..216], catalog_block_count);
+    // Allocation File (offset 112)
+    BigEndian::write_u64(&mut vh[112..120], block_size as u64);
+    BigEndian::write_u32(&mut vh[120..124], block_size);
+    BigEndian::write_u32(&mut vh[124..128], 1);
+    BigEndian::write_u32(&mut vh[128..132], 1); // start_block = 1
+    BigEndian::write_u32(&mut vh[132..136], 1); // block_count = 1
+
+    // Extents Overflow File (offset 192)
+    BigEndian::write_u64(&mut vh[192..200], block_size as u64);
+    BigEndian::write_u32(&mut vh[200..204], block_size);
+    BigEndian::write_u32(&mut vh[204..208], 1);
+    BigEndian::write_u32(&mut vh[208..212], 2); // start_block = 2
+    BigEndian::write_u32(&mut vh[212..216], 1); // block_count = 1
+
+    // Catalog File (offset 272)
+    BigEndian::write_u64(&mut vh[272..280], (catalog_block_count * block_size) as u64);
+    BigEndian::write_u32(&mut vh[280..284], catalog_block_count * block_size);
+    BigEndian::write_u32(&mut vh[284..288], catalog_block_count);
+    BigEndian::write_u32(&mut vh[288..292], catalog_start_block); // start_block = 3
+    BigEndian::write_u32(&mut vh[292..296], catalog_block_count); // block_count = 4
 
     file.seek(SeekFrom::Start(1024))?;
     file.write_all(&vh)?;
