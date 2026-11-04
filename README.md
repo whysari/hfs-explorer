@@ -39,22 +39,22 @@ Windows does not natively support Apple's **HFS+ (Hierarchical File System Plus 
 
 ```mermaid
 flowchart TD
-    subgraph UI ["Frontend (React 19 + TypeScript)"]
-        A[File Browser UI] -->|Select Drive / Navigate| B[Tauri IPC Bridge]
-        C[File Preview & Extract Progress] <---|Events & Status| B
+    subgraph UI["Frontend: React 19 and TypeScript"]
+        A["File Browser UI"] -->|"Select Drive or Navigate"| B["Tauri IPC Bridge"]
+        B -->|"Events and Status"| C["Extract Progress and Details"]
     end
 
-    subgraph Rust ["Backend (Rust Engine)"]
-        B -->|invoke 'open_volume' / 'list_directory'| D[Drive & Image Reader]
-        D -->|Raw Sector Reading| E[Partition Table Parser (GPT / APM)]
-        E -->|Volume Header (1024 offset)| F[HFS+ B-Tree Catalog Engine]
-        F -->|Record Lookup| G[Extents & Block Allocator]
-        G -->|Stream Bytes to NTFS| H[File Exporter]
+    subgraph Rust["Backend: Rust Engine"]
+        B -->|"invoke open_volume or list_directory"| D["Drive and Image Reader"]
+        D -->|"Raw Sector Reading"| E["Partition Table Parser (GPT and APM)"]
+        E -->|"Volume Header at Offset 1024"| F["HFS+ B-Tree Catalog Engine"]
+        F -->|"Record Lookup"| G["Extents and Block Allocator"]
+        G -->|"Stream Bytes to NTFS"| H["File Exporter"]
     end
 
-    subgraph Storage ["Hardware & Windows OS"]
-        D <-->|CreateFileW '\\.\PhysicalDriveX'| I[Raw Hard Drive / USB / DMG Image]
-        H -->|Standard File I/O| J[Destination Windows Folder]
+    subgraph Storage["Storage: Windows OS and Hardware"]
+        D -->|"Read Sectors from Device"| I["Physical Drive or DMG Image"]
+        H -->|"Standard File IO"| J["Destination Windows Folder"]
     end
 ```
 
