@@ -72,6 +72,24 @@ fn extract_entry(
 }
 
 #[tauri::command]
+fn prepare_drag_entry(
+    state: State<AppState>,
+    entry_id: u32,
+) -> Result<String, String> {
+    let mut lock = state.reader.lock().map_err(|e| e.to_string())?;
+    let reader = lock.as_mut().ok_or("No volume is currently open")?;
+
+    let temp_cache = std::env::temp_dir().join("hfs_explorer_drag_cache");
+    let _ = std::fs::create_dir_all(&temp_cache);
+
+    let stats = reader
+        .extract_entry(entry_id, &temp_cache)
+        .map_err(|e| format!("Failed to prepare file for drag: {}", e))?;
+
+    Ok(stats.destination_path)
+}
+
+#[tauri::command]
 fn create_test_image(dest_path: String) -> Result<String, String> {
     hfs::generator::generate_test_image(&dest_path)
         .map_err(|e| format!("Failed to generate test image: {}", e))?;
@@ -83,6 +101,7 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_drag::init())
         .manage(AppState {
             reader: Mutex::new(None),
         })
@@ -92,6 +111,7 @@ pub fn run() {
             list_directory,
             extract_file,
             extract_entry,
+            prepare_drag_entry,
             create_test_image
         ])
         .run(tauri::generate_context!())
