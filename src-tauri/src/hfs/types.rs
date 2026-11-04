@@ -204,3 +204,11 @@ pub struct VolumeInfo {
     pub total_size_bytes: u64,
     pub free_size_bytes: u64,
 }
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ExtractionStats {
+    pub files_count: u32,
+    pub folders_count: u32,
+    pub bytes_written: u64,
+    pub destination_path: String,
+}

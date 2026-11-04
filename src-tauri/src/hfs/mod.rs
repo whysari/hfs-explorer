@@ -29,7 +29,7 @@ mod tests {
         assert!(root_entries.iter().any(|e| e.name == "Pictures"));
         assert!(root_entries.iter().any(|e| e.name == "hello_apple.txt"));
 
-        // Test extraction
+        // Test single file extraction
         let hello_entry = root_entries
             .iter()
             .find(|e| e.name == "hello_apple.txt")
@@ -43,7 +43,27 @@ mod tests {
         let extracted_content = fs::read_to_string(&extracted_path).unwrap();
         assert!(extracted_content.contains("Welcome to Apple HFS+ on Windows!"));
 
+        // Test recursive folder extraction (Documents folder contains notes.txt)
+        let doc_entry = root_entries
+            .iter()
+            .find(|e| e.name == "Documents")
+            .unwrap();
+        let extract_dir = std::env::temp_dir().join("hfs_extracted_docs");
+        let _ = fs::remove_dir_all(&extract_dir);
+
+        let stats = reader
+            .extract_entry(doc_entry.id, &extract_dir)
+            .expect("Failed to extract folder");
+        assert_eq!(stats.files_count, 1);
+        assert!(stats.bytes_written > 0);
+
+        let notes_file = extract_dir.join("notes.txt");
+        assert!(notes_file.exists());
+        let notes_content = fs::read_to_string(&notes_file).unwrap();
+        assert!(notes_content.contains("HFS+ Project Notes"));
+
         let _ = fs::remove_file(&temp_path);
         let _ = fs::remove_file(&extracted_path);
+        let _ = fs::remove_dir_all(&extract_dir);
     }
 }

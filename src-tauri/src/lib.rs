@@ -1,9 +1,10 @@
+use std::path::Path;
 use std::sync::Mutex;
 use tauri::State;
 
 mod hfs;
 use hfs::drives::{enumerate_drives, DetectedDrive};
-use hfs::types::{HfsEntry, VolumeInfo, ROOT_FOLDER_ID};
+use hfs::types::{ExtractionStats, HfsEntry, VolumeInfo, ROOT_FOLDER_ID};
 use hfs::HfsReader;
 
 pub struct AppState {
@@ -56,6 +57,21 @@ fn extract_file(
 }
 
 #[tauri::command]
+fn extract_entry(
+    state: State<AppState>,
+    entry_id: u32,
+    destination_path: String,
+) -> Result<ExtractionStats, String> {
+    let mut lock = state.reader.lock().map_err(|e| e.to_string())?;
+    let reader = lock.as_mut().ok_or("No volume is currently open")?;
+
+    let dest_path = Path::new(&destination_path);
+    reader
+        .extract_entry(entry_id, dest_path)
+        .map_err(|e| format!("Extraction failed: {}", e))
+}
+
+#[tauri::command]
 fn create_test_image(dest_path: String) -> Result<String, String> {
     hfs::generator::generate_test_image(&dest_path)
         .map_err(|e| format!("Failed to generate test image: {}", e))?;
@@ -75,6 +91,7 @@ pub fn run() {
             open_volume,
             list_directory,
             extract_file,
+            extract_entry,
             create_test_image
         ])
         .run(tauri::generate_context!())

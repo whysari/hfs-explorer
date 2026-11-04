@@ -1,7 +1,7 @@
 use byteorder::{ByteOrder, LittleEndian};
-use std::fs::File;
+use std::fs::{self, File};
 use std::io::{self, Read, Seek, SeekFrom, Write};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use super::btree::CatalogTree;
 use super::types::*;
@@ -11,6 +11,25 @@ pub struct HfsReader {
     pub partition_offset: u64,
     pub volume_header: VolumeHeader,
     pub catalog: CatalogTree,
+}
+
+/// Sanitize filename for Windows NTFS compatibility
+pub fn sanitize_windows_filename(name: &str) -> String {
+    let sanitized: String = name
+        .chars()
+        .map(|c| match c {
+            '<' | '>' | ':' | '"' | '/' | '\\' | '|' | '?' | '*' => '_',
+            c if (c as u32) < 32 => '_',
+            c => c,
+        })
+        .collect();
+
+    let trimmed = sanitized.trim().trim_end_matches('.');
+    if trimmed.is_empty() {
+        "unnamed".to_string()
+    } else {
+        trimmed.to_string()
+    }
 }
 
 impl HfsReader {
@@ -154,6 +173,7 @@ impl HfsReader {
         entries
     }
 
+    /// Extract a single file given its CNID to a destination file path on Windows
     pub fn extract_file<P: AsRef<Path>>(&mut self, file_id: u32, target_path: P) -> io::Result<u64> {
         let entry = self
             .catalog
@@ -169,7 +189,11 @@ impl HfsReader {
             ));
         }
 
-        let mut out = File::create(target_path)?;
+        if let Some(parent) = target_path.as_ref().parent() {
+            fs::create_dir_all(parent)?;
+        }
+
+        let mut out = File::create(&target_path)?;
         let block_size = self.volume_header.block_size as u64;
         let mut bytes_remaining = entry.size;
         let mut total_written = 0u64;
@@ -201,5 +225,87 @@ impl HfsReader {
 
         out.flush()?;
         Ok(total_written)
+    }
+
+    /// Recursively extract a folder and all its contents onto Windows
+    fn extract_folder_recursive(
+        &mut self,
+        folder_id: u32,
+        target_dir: &Path,
+        stats: &mut ExtractionStats,
+    ) -> io::Result<()> {
+        fs::create_dir_all(target_dir)?;
+        stats.folders_count += 1;
+
+        let children = self.list_directory(folder_id);
+        for child in children {
+            let safe_name = sanitize_windows_filename(&child.name);
+            let child_target = target_dir.join(safe_name);
+
+            if child.is_directory {
+                self.extract_folder_recursive(child.id, &child_target, stats)?;
+            } else {
+                let written = self.extract_file(child.id, &child_target)?;
+                stats.files_count += 1;
+                stats.bytes_written += written;
+            }
+        }
+
+        Ok(())
+    }
+
+    /// Extract either a file or a folder to a target destination directory or file path
+    pub fn extract_entry(
+        &mut self,
+        entry_id: u32,
+        target_destination: &Path,
+    ) -> io::Result<ExtractionStats> {
+        let is_root = entry_id == ROOT_FOLDER_ID;
+        let entry_opt = self.catalog.entries_by_id.get(&entry_id).cloned();
+
+        let (is_dir, name) = if is_root {
+            (true, self.catalog.volume_name.clone())
+        } else if let Some(e) = entry_opt {
+            (e.is_directory, e.name.clone())
+        } else {
+            return Err(io::Error::new(io::ErrorKind::NotFound, "Entry ID not found"));
+        };
+
+        let safe_name = sanitize_windows_filename(&name);
+
+        if is_dir {
+            // Target is a directory. If target_destination is an existing folder or path,
+            // create subfolder with folder name unless root is targeted
+            let final_dir: PathBuf = if target_destination.is_dir() {
+                target_destination.join(safe_name)
+            } else {
+                target_destination.to_path_buf()
+            };
+
+            let mut stats = ExtractionStats {
+                files_count: 0,
+                folders_count: 0,
+                bytes_written: 0,
+                destination_path: final_dir.to_string_lossy().to_string(),
+            };
+
+            self.extract_folder_recursive(entry_id, &final_dir, &mut stats)?;
+            Ok(stats)
+        } else {
+            // Target is a file
+            let final_file_path: PathBuf = if target_destination.is_dir() {
+                target_destination.join(safe_name)
+            } else {
+                target_destination.to_path_buf()
+            };
+
+            let written = self.extract_file(entry_id, &final_file_path)?;
+            Ok(ExtractionStats {
+                files_count: 1,
+                folders_count: 0,
+                bytes_written: written,
+                destination_path: final_file_path.to_string_lossy().to_string(),
+            })
+        }
     }
 }
