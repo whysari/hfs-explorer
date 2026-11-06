@@ -1,8 +1,8 @@
 [package]
 name = "hfs-explorer"
 version = "0.1.0"
-description = "A Tauri App"
-authors = ["you"]
+description = "A desktop app to read, browse, and extract Apple HFS+ formatted drives on Windows"
+authors = ["whysari <saranari714@gmail.com>"]
 edition = "2024"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
