@@ -84,7 +84,7 @@ Ensure you have the following installed on Windows:
 
 ```powershell
 # Clone the repository
-git clone https://github.com/<your-username>/hfs-explorer.git
+git clone https://github.com/whysari/hfs-explorer.git
 cd hfs-explorer
 
 # Install frontend dependencies
